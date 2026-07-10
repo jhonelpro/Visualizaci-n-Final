@@ -81,7 +81,7 @@ st.markdown("""
 #  CARGA Y PREPROCESAMIENTO
 # ══════════════════════════════════════════════════════════
 # Ruta al dataset relativa al propio archivo .py (funciona desde cualquier directorio)
-DATA_PATH = "src/data.xlsx"
+DATA_PATH = "src/data/data.xlsx"
 
 @st.cache_data(show_spinner="Cargando dataset…")
 def load_data() -> pd.DataFrame:

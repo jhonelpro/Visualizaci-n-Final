@@ -315,60 +315,76 @@ df_v1_wide = df_v1_wide.merge(df_top3, on="REGIÓN", how="left")
 df_v1_wide["lat"] = df_v1_wide["REGIÓN"].map(lambda r: REGION_COORDS[r][0])
 df_v1_wide["lon"] = df_v1_wide["REGIÓN"].map(lambda r: REGION_COORDS[r][1])
 
-col_map, col_map_info = st.columns([2, 1])
+# ── Mapa ancho completo arriba, tabla y donut abajo ───────
+st.markdown(
+    "<div style='font-size:.78rem;color:#9e9e9e;margin-bottom:2px;'>"
+    "🌍 Rueda del mouse para hacer zoom · Arrastra para mover · "
+    "Hover sobre cada burbuja para ver detalle</div>",
+    unsafe_allow_html=True,
+)
+fig_map = px.scatter_geo(
+    df_v1_wide,
+    lat="lat", lon="lon",
+    size="total_region",
+    color="tasa_otorga",
+    color_continuous_scale="Blues",
+    size_max=60,
+    scope="world",
+    hover_name="REGIÓN",
+    hover_data={
+        "total_region":  ":,.0f",
+        "tasa_otorga":   ":.1f",
+        "tasa_rechazo":  ":.1f",
+        "top3_paises":   True,
+        "lat": False, "lon": False,
+    },
+    labels={
+        "total_region":  "Registros totales",
+        "tasa_otorga":   "Tasa otorgamiento (%)",
+        "tasa_rechazo":  "Tasa rechazo (%)",
+        "top3_paises":   "Top 3 nacionalidades",
+    },
+)
+fig_map.update_geos(
+    showcountries=True,  countrycolor="#444",
+    showland=True,       landcolor="#1e2235",
+    showocean=True,      oceancolor="#0d1117",
+    showcoastlines=True, coastlinecolor="#555",
+    showframe=False,
+)
+fig_map.update_layout(
+    paper_bgcolor="#0f1117",
+    plot_bgcolor="#0f1117",
+    font_color="#e8eaf6",
+    height=460,
+    margin=dict(l=0, r=0, t=4, b=0),
+    coloraxis_colorbar=dict(
+        title_text="% Otorgamiento",
+        thickness=14,
+        len=0.55,
+        y=0.5,
+        tickfont=dict(size=10),
+    ),
+)
+st.plotly_chart(fig_map, use_container_width=True)
+st.markdown(
+    '<div class="nota" style="margin-top:2px;">'
+    '🔵 Tamaño = volumen total · Azul oscuro = mayor tasa de otorgamiento · '
+    'La RM concentra ~63,5% del total.</div>',
+    unsafe_allow_html=True,
+)
 
-with col_map:
-    fig_map = px.scatter_geo(
-        df_v1_wide,
-        lat="lat", lon="lon",
-        size="total_region",
-        color="tasa_otorga",
-        color_continuous_scale="Blues",
-        size_max=60,
-        scope="south america",
-        hover_name="REGIÓN",
-        hover_data={
-            "total_region":  ":,.0f",
-            "tasa_otorga":   ":.1f",
-            "tasa_rechazo":  ":.1f",
-            "top3_paises":   True,
-            "lat": False, "lon": False,
-        },
-        labels={
-            "total_region":  "Registros totales",
-            "tasa_otorga":   "Tasa otorgamiento (%)",
-            "tasa_rechazo":  "Tasa rechazo (%)",
-            "top3_paises":   "Top 3 nacionalidades",
-        },
-        title="Tamaño = volumen total · Color = tasa de otorgamiento",
-    )
-    fig_map.update_geos(
-        center={"lat": -35, "lon": -71},
-        projection_scale=4,
-        showcountries=True,  countrycolor="#555",
-        showland=True,       landcolor="#1a1a2e",
-        showocean=True,      oceancolor="#0d1117",
-        showcoastlines=True, coastlinecolor="#555",
-    )
-    fig_map.update_layout(
-        paper_bgcolor="#0f1117",
-        plot_bgcolor="#0f1117",
-        font_color="#e8eaf6",
-        height=570,
-        margin=dict(l=0, r=0, t=36, b=0),
-        geo=dict(
-            lataxis={"range": [-56, -17]},
-            lonaxis={"range": [-76, -66]},
-        ),
-    )
-    # Colorbar styling — compatible con todas las versiones de Plotly
-    fig_map.update_coloraxes(colorbar={
-        "title": {"text": "Tasa otorgamiento (%)"},
-    })
-    st.plotly_chart(fig_map, use_container_width=True)
+st.markdown("<br>", unsafe_allow_html=True)
 
-with col_map_info:
-    st.markdown("**Top 10 regiones por volumen**")
+# ── Tabla y donut abajo en dos columnas iguales ────────────
+col_tabla, col_donut = st.columns([1, 1])
+
+with col_tabla:
+    st.markdown(
+        "<div style='font-size:.85rem;font-weight:600;color:#e8eaf6;"
+        "margin-bottom:4px;'>📋 Top 10 regiones</div>",
+        unsafe_allow_html=True,
+    )
     top10 = (
         df_v1_wide
         .nlargest(10, "total_region")
@@ -381,32 +397,46 @@ with col_map_info:
     top10["% Rechazo"] = top10["% Rechazo"].apply(lambda x: f"{x:.1f}%")
     top10 = top10.reset_index(drop=True)
     top10.index += 1
-    st.dataframe(top10, use_container_width=True, height=350)
+    st.dataframe(top10, use_container_width=True, height=360)
 
-    # Gráfico de donut rápido con distribución de tipos (filtros activos)
+with col_donut:
+    st.markdown(
+        "<div style='font-size:.85rem;font-weight:600;color:#e8eaf6;"
+        "margin-bottom:4px;'>🍩 Distribución de resoluciones</div>",
+        unsafe_allow_html=True,
+    )
     df_donut = df.groupby("TIPO_RESUELTO")["Total"].sum().reset_index()
+    total_fmt = f"{int(df_donut['Total'].sum()):,}".replace(",", ".")
     fig_donut = go.Figure(go.Pie(
         labels=df_donut["TIPO_RESUELTO"],
         values=df_donut["Total"],
-        hole=0.55,
+        hole=0.58,
         marker_colors=[COLOR_MAP.get(t,"#ccc") for t in df_donut["TIPO_RESUELTO"]],
-        showlegend=False,
-        textinfo="percent+label",
-        textfont_size=11,
+        marker_line=dict(color="#0f1117", width=2),
+        showlegend=True,
+        textinfo="percent",
+        textfont_size=10,
+        textposition="inside",
     ))
+    fig_donut.add_annotation(
+        text=f"<b>{total_fmt}</b><br>registros",
+        x=0.5, y=0.5, showarrow=False,
+        font=dict(size=11, color="#e8eaf6"),
+        align="center",
+    )
     fig_donut.update_layout(
         paper_bgcolor="#0f1117", font_color="#e8eaf6",
-        height=220, margin=dict(l=0, r=0, t=10, b=0),
-        title=dict(text="Distribución global", font_size=12),
+        height=360,
+        margin=dict(l=0, r=0, t=0, b=0),
+        legend=dict(
+            orientation="v",
+            x=1.01, y=0.5,
+            xanchor="left",
+            font=dict(size=9, color="#bdbdbd"),
+            bgcolor="rgba(0,0,0,0)",
+        ),
     )
     st.plotly_chart(fig_donut, use_container_width=True)
-
-    st.markdown(
-        '<div class="nota">⚠️ <b>Escala logarítmica implícita.</b> '
-        'La RM concentra ~63,5% del total. El tamaño del círculo es '
-        'proporcional al volumen absoluto de registros.</div>',
-        unsafe_allow_html=True,
-    )
 
 st.markdown("---")
 
@@ -525,15 +555,19 @@ with col_v2main:
             bargap=0.14,
         )
         st.plotly_chart(fig_bar, use_container_width=True)
-        st.markdown(
-            '<div class="nota">'
-            'Las barras se ordenan por tasa de Otorga ascendente (mayor tasa al tope). '
-            'La línea punteada blanca indica el promedio general de otorgamiento '
-            'para los filtros activos. Grupos con menos registros que el umbral '
-            'definido son excluidos automáticamente.'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+
+# Nota fuera de las columnas para evitar solapamiento con la tabla
+st.markdown(
+    '<div class="nota">'
+    'Las barras se ordenan por tasa de Otorga ascendente (mayor tasa al tope). '
+    'La línea punteada blanca indica el promedio general de otorgamiento '
+    'para los filtros activos. Grupos con menos registros que el umbral '
+    'definido son excluidos automáticamente.'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # Tabla resumen bajo el gráfico (expansible)
 with st.expander("📋 Ver tabla de proporciones por grupo"):
@@ -712,20 +746,28 @@ with col_v3main:
             legend=dict(
                 bgcolor="#1e2130", bordercolor="#444",
                 borderwidth=1, font_color="#e8eaf6",
+                font_size=10,
+                orientation="h",
+                yanchor="top", y=-0.20,
+                xanchor="center", x=0.5,
+                itemwidth=40,
             ),
-            margin=dict(l=10, r=10, t=50, b=40),
+            margin=dict(l=10, r=10, t=50, b=130),
             hovermode="x unified",
         )
         st.plotly_chart(fig_line, use_container_width=True)
-        st.markdown(
-            '<div class="nota">'
-            'Línea continua = Rechaza con RT (residencia temporaria otorgada como alternativa). '
-            'Línea punteada = Rechaza con abandono (salida del país). '
-            'Del total histórico de rechazos, el 89,6% corresponde a "Rechaza con RT" '
-            'y el 10,4% a "Rechaza con abandono".'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        
+st.markdown(
+    '<div class="nota">'
+    'Línea continua = Rechaza con RT (residencia temporaria otorgada como alternativa). '
+    'Línea punteada = Rechaza con abandono (salida del país). '
+    'Del total histórico de rechazos, el 89,6% corresponde a "Rechaza con RT" '
+    'y el 10,4% a "Rechaza con abandono".'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Tabla de rechazos por año (expandible) ────────────────
 with st.expander("📋 Ver tabla de rechazos por año"):

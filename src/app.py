@@ -14,9 +14,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 
-# ══════════════════════════════════════════════════════════
-#  CONFIGURACIÓN DE PÁGINA
-# ══════════════════════════════════════════════════════════
+# Configuración general de la página
 st.set_page_config(
     page_title="Residencias Definitivas — Chile 2000–2025",
     page_icon="🇨🇱",
@@ -24,20 +22,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ══════════════════════════════════════════════════════════
-#  PALETA GLOBAL (consistente en las 3 vistas)
-# ══════════════════════════════════════════════════════════
+# Paleta de colores por tipo de resolución — se usa en las 3 vistas para mantener coherencia
 COLOR_MAP = {
     "Otorga":               "#4dac26",
     "Rechaza con Rt":       "#d01c8b",
     "Archiva":              "#f1a340",
     "Rechaza con abandono": "#998ec3",
 }
+# Orden fijo de los tipos para que las barras siempre aparezcan en el mismo orden
 TIPO_ORDER = ["Otorga", "Archiva", "Rechaza con Rt", "Rechaza con abandono"]
 
-# ══════════════════════════════════════════════════════════
-#  CSS PERSONALIZADO
-# ══════════════════════════════════════════════════════════
+# Estilos CSS personalizados: leyenda, tarjetas de métricas y notas
 st.markdown("""
 <style>
     /* contenedor principal */
@@ -77,16 +72,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════
-#  CARGA Y PREPROCESAMIENTO
-# ══════════════════════════════════════════════════════════
-# Ruta al dataset relativa al propio archivo .py (funciona desde cualquier directorio)
+# ── Carga del dataset ──────────────────────────────────────────────────────────
+# Ruta al archivo Excel relativa a este script
 DATA_PATH = "src/data/data.xlsx"
 
 @st.cache_data(show_spinner="Cargando dataset…")
 def load_data() -> pd.DataFrame:
-    """Lee el Excel, descarta filas con Total='*' (privacidad < 6 casos)
-    y convierte los tipos numéricos necesarios."""
+    # Lee el Excel, descarta filas con Total='*' (menos de 6 casos, privacidad)
+    # y convierte las columnas numéricas necesarias
     df = pd.read_excel(DATA_PATH, dtype=str)
     df = df[df["Total"] != "*"].copy()
     df["Total"] = pd.to_numeric(df["Total"])
@@ -96,15 +89,14 @@ def load_data() -> pd.DataFrame:
 
 df_raw = load_data()
 
-# Categorías a excluir por defecto (privacidad / sin datos)
-EXCLUIR_REGION  = {"Sin Información", "Anonimizada"}
-EXCLUIR_ETARIO  = {"Sin info", "Anonimizado"}
+# Categorías que se excluyen por defecto al aplicar filtros
+EXCLUIR_REGION   = {"Sin Información", "Anonimizada"}
+EXCLUIR_ETARIO   = {"Sin info", "Anonimizado"}
 EXCLUIR_ESTUDIOS = {"No informa", "Otros estudios"}
-EXCLUIR_ACT     = {"No informa", "Otras actividades", "Tripulante"}
+EXCLUIR_ACT      = {"No informa", "Otras actividades", "Tripulante"}
 
-# ══════════════════════════════════════════════════════════
-#  COORDENADAS CENTROIDES POR REGIÓN (para mapa de burbujas)
-# ══════════════════════════════════════════════════════════
+# ── Coordenadas geográficas de cada región (centroide aproximado) ──────────────
+# Se usan para posicionar las burbujas en el mapa de la Vista 1
 REGION_COORDS: dict[str, tuple[float, float]] = {
     "Arica y Parinacota":                            (-18.48, -70.32),
     "Tarapacá":                                      (-20.21, -69.30),
@@ -124,20 +116,18 @@ REGION_COORDS: dict[str, tuple[float, float]] = {
     "Magallanes y de la Antártica Chilena":          (-53.16, -70.91),
 }
 
-# ══════════════════════════════════════════════════════════
-#  BARRA LATERAL — FILTROS GLOBALES ENCADENADOS
-# ══════════════════════════════════════════════════════════
+# ── Barra lateral: filtros globales encadenados ────────────────────────────────
 with st.sidebar:
     st.markdown("## 🔎 Filtros Globales")
 
-    # Toggle para incluir categorías sin información
+    # Toggle para mostrar u ocultar registros sin información o anonimizados
     incluir_nulos = st.toggle(
         'Incluir "Sin Información" / "Anonimizado/a"',
         value=False,
         help="Activa para incluir filas con datos faltantes o anonimizados",
     )
 
-    # Listas disponibles (limpias por defecto)
+    # Listas de valores disponibles para cada filtro (excluyendo nulos por defecto)
     paises_disp = sorted(df_raw["PAÍS"].unique())
     regiones_disp = sorted(
         r for r in df_raw["REGIÓN"].unique() if r not in EXCLUIR_REGION
@@ -150,7 +140,7 @@ with st.sidebar:
                      ["Básico","Medio","Técnico","Universitario"]
                      if e in df_raw["ESTUDIOS"].unique()]
 
-    # Selectores encadenados
+    # Selectores — cada uno filtra el dataframe de forma independiente
     sel_paises   = st.multiselect("Nacionalidad (País)", paises_disp,
                                   placeholder="Todos los países")
     sel_regiones = st.multiselect("Región", regiones_disp,
@@ -164,6 +154,7 @@ with st.sidebar:
                                   placeholder="Todos los niveles")
 
     st.markdown("---")
+    # Fuente del dataset con enlace directo al archivo original
     st.markdown(
         "<div style='font-size:.72rem;color:#9e9e9e;line-height:1.5;'>"
         "<b>Fuente:</b> Servicio Nacional de Migraciones (SERMIG), 2026.<br>"
@@ -174,19 +165,17 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-# ══════════════════════════════════════════════════════════
-#  APLICAR FILTROS AL DATAFRAME
-# ══════════════════════════════════════════════════════════
+# ── Aplicar filtros al dataframe principal ─────────────────────────────────────
 df = df_raw.copy()
 
-# Excluir categorías sin información (a menos que el toggle esté activo)
+# Excluir categorías sin información si el toggle está desactivado
 if not incluir_nulos:
     df = df[~df["REGIÓN"].isin(EXCLUIR_REGION)]
     df = df[~df["RANGO_ETARIO"].isin(EXCLUIR_ETARIO)]
     df = df[~df["ESTUDIOS"].isin(EXCLUIR_ESTUDIOS)]
     df = df[~df["ACTIVIDAD"].isin(EXCLUIR_ACT)]
 
-# Filtros de usuario
+# Aplicar selecciones del usuario — solo si hay valores seleccionados
 if sel_paises:
     df = df[df["PAÍS"].isin(sel_paises)]
 if sel_regiones:
@@ -199,12 +188,10 @@ if sel_etario:
 if sel_estudios:
     df = df[df["ESTUDIOS"].isin(sel_estudios)]
 
-# ══════════════════════════════════════════════════════════
-#  ENCABEZADO PRINCIPAL
-# ══════════════════════════════════════════════════════════
+# ── Encabezado principal ───────────────────────────────────────────────────────
 st.markdown("# 🇨🇱 Residencias Definitivas Resueltas — Chile 2000–2025")
 
-# Subtítulo dinámico según filtros activos
+# Subtítulo dinámico que refleja los filtros activos
 partes = []
 if sel_paises:
     partes.append(", ".join(sel_paises[:3]) + ("…" if len(sel_paises) > 3 else ""))
@@ -224,7 +211,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Leyenda de colores unificada (persistente en toda la página)
+# Leyenda de colores — se muestra una sola vez arriba y es válida para las 3 vistas
 st.markdown(
     '<div class="legend-bar">'
     + "".join(
@@ -235,9 +222,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ══════════════════════════════════════════════════════════
-#  MÉTRICAS RESUMEN
-# ══════════════════════════════════════════════════════════
+# ── Métricas resumen ───────────────────────────────────────────────────────────
+# Calculadas sobre el dataframe filtrado
 total_regs   = int(df["Total"].sum())
 n_otorga     = int(df[df["TIPO_RESUELTO"] == "Otorga"]["Total"].sum())
 n_rechaza    = int(df[df["TIPO_RESUELTO"].isin(
@@ -247,6 +233,7 @@ tasa_otorga  = n_otorga  / total_regs * 100 if total_regs else 0
 tasa_rechaza = n_rechaza / total_regs * 100 if total_regs else 0
 tasa_archiva = n_archiva / total_regs * 100 if total_regs else 0
 
+# Mostrar las 4 métricas en tarjetas horizontales
 mc1, mc2, mc3, mc4 = st.columns(4)
 for col, val, lbl in [
     (mc1, f"{total_regs:,.0f}", "Registros administrativos"),
@@ -264,10 +251,10 @@ for col, val, lbl in [
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════
-#  VISTA 1 — MAPA DE BURBUJAS COROPLÉTICO
-#  Tarea: Descubrir concentración geográfica por región
-# ══════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+#  VISTA 1 — MAPA DE BURBUJAS
+#  Tarea: Descubrir la concentración geográfica de solicitudes por región
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown(
     '<div class="vista-title">🗺️ Vista 1: Exploración Espacial — Concentración por Región</div>'
     '<div class="vista-sub">¿Qué regiones de Chile concentran la mayor demanda de '
@@ -275,9 +262,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Agregación por región y tipo ──────────────────────────
+# Filtrar solo las regiones que tienen coordenadas definidas
 df_v1_base = df[df["REGIÓN"].isin(REGION_COORDS)].copy()
 
+# Pivot: una fila por región con columnas para cada tipo de resolución
 df_v1_wide = (
     df_v1_base
     .groupby(["REGIÓN","TIPO_RESUELTO"])["Total"]
@@ -285,21 +273,22 @@ df_v1_wide = (
     .unstack(fill_value=0)
     .reset_index()
 )
-# Asegurar que existan todas las columnas aunque algún tipo no tenga datos
+# Garantizar que todas las columnas de tipo existen aunque no haya datos
 for t in TIPO_ORDER:
     if t not in df_v1_wide.columns:
         df_v1_wide[t] = 0
 
-df_v1_wide["total_region"]  = df_v1_wide[TIPO_ORDER].sum(axis=1)
-df_v1_wide["tasa_otorga"]   = (
+# Calcular totales y tasas por región
+df_v1_wide["total_region"] = df_v1_wide[TIPO_ORDER].sum(axis=1)
+df_v1_wide["tasa_otorga"]  = (
     df_v1_wide["Otorga"] / df_v1_wide["total_region"].replace(0, np.nan) * 100
 ).round(1)
-df_v1_wide["tasa_rechazo"]  = (
+df_v1_wide["tasa_rechazo"] = (
     (df_v1_wide["Rechaza con Rt"] + df_v1_wide["Rechaza con abandono"])
     / df_v1_wide["total_region"].replace(0, np.nan) * 100
 ).round(1)
 
-# Top-3 nacionalidades por región (para tooltip)
+# Top 3 países por región para mostrar en el tooltip del mapa
 df_top3 = (
     df_v1_base
     .groupby(["REGIÓN","PAÍS"])["Total"].sum().reset_index()
@@ -312,17 +301,19 @@ df_top3 = (
 )
 df_v1_wide = df_v1_wide.merge(df_top3, on="REGIÓN", how="left")
 
-# Coordenadas
+# Agregar coordenadas para el mapa
 df_v1_wide["lat"] = df_v1_wide["REGIÓN"].map(lambda r: REGION_COORDS[r][0])
 df_v1_wide["lon"] = df_v1_wide["REGIÓN"].map(lambda r: REGION_COORDS[r][1])
 
-# ── Mapa ancho completo arriba, tabla y donut abajo ───────
+# Instrucción de uso del mapa
 st.markdown(
     "<div style='font-size:.78rem;color:#9e9e9e;margin-bottom:2px;'>"
     "🌍 Rueda del mouse para hacer zoom · Arrastra para mover · "
     "Hover sobre cada burbuja para ver detalle</div>",
     unsafe_allow_html=True,
 )
+
+# Mapa de burbujas: tamaño = volumen total, color = tasa de otorgamiento
 fig_map = px.scatter_geo(
     df_v1_wide,
     lat="lat", lon="lon",
@@ -377,7 +368,7 @@ st.markdown(
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Tabla y donut abajo en dos columnas iguales ────────────
+# Tabla y donut debajo del mapa en dos columnas iguales
 col_tabla, col_donut = st.columns([1, 1])
 
 with col_tabla:
@@ -386,6 +377,7 @@ with col_tabla:
         "margin-bottom:4px;'>📋 Top 10 regiones</div>",
         unsafe_allow_html=True,
     )
+    # Construir tabla con las 10 regiones de mayor volumen
     top10 = (
         df_v1_wide
         .nlargest(10, "total_region")
@@ -406,6 +398,7 @@ with col_donut:
         "margin-bottom:4px;'>🍩 Distribución de resoluciones</div>",
         unsafe_allow_html=True,
     )
+    # Agregar total por tipo de resolución para el donut
     df_donut = df.groupby("TIPO_RESUELTO")["Total"].sum().reset_index()
     total_fmt = f"{int(df_donut['Total'].sum()):,}".replace(",", ".")
     fig_donut = go.Figure(go.Pie(
@@ -419,6 +412,7 @@ with col_donut:
         textfont_size=10,
         textposition="inside",
     ))
+    # Total de registros en el centro del donut
     fig_donut.add_annotation(
         text=f"<b>{total_fmt}</b><br>registros",
         x=0.5, y=0.5, showarrow=False,
@@ -441,10 +435,10 @@ with col_donut:
 
 st.markdown("---")
 
-# ══════════════════════════════════════════════════════════
-#  VISTA 2 — BARRAS APILADAS AL 100 %
-#  Tarea: Comparar resultados por perfil sociodemográfico
-# ══════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+#  VISTA 2 — BARRAS APILADAS AL 100%
+#  Tarea: Comparar proporciones de resolución por perfil sociodemográfico
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown(
     '<div class="vista-title">📊 Vista 2: Comparación de Perfiles Sociodemográficos</div>'
     '<div class="vista-sub">¿Existen diferencias sistemáticas en los resultados de las '
@@ -452,9 +446,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Columna izquierda: controles, columna derecha: gráfico
 col_v2ctrl, col_v2main = st.columns([1, 3])
 
 with col_v2ctrl:
+    # Variable de agrupamiento del eje Y — cambia el gráfico sin salir de la vista
     eje_y = st.selectbox(
         "Agrupar por:",
         ["PAÍS","SEXO","RANGO_ETARIO","ESTUDIOS"],
@@ -465,24 +461,28 @@ with col_v2ctrl:
             "ESTUDIOS":    "Nivel de Estudios",
         }[x],
     )
+    # Umbral mínimo para excluir grupos con pocos datos y reducir ruido visual
     min_regs_v2 = st.number_input(
         "Mínimo registros por grupo",
         min_value=100, max_value=100_000, value=1000, step=500,
     )
 
-# Preparar datos Vista 2
+# Preparar datos para Vista 2
 df_v2 = df.copy()
+# Excluir categorías sin información según la variable elegida
 if eje_y == "RANGO_ETARIO":
     df_v2 = df_v2[~df_v2["RANGO_ETARIO"].isin(EXCLUIR_ETARIO)]
 elif eje_y == "ESTUDIOS":
     df_v2 = df_v2[~df_v2["ESTUDIOS"].isin(EXCLUIR_ESTUDIOS)]
 
+# Agregar por grupo y tipo de resolución
 df_v2_agg = (
     df_v2
     .groupby([eje_y, "TIPO_RESUELTO"])["Total"]
     .sum()
     .reset_index()
 )
+# Total por grupo para calcular proporciones
 df_v2_tot = (
     df_v2
     .groupby(eje_y)["Total"]
@@ -491,17 +491,18 @@ df_v2_tot = (
     .rename(columns={"Total": "gran_total"})
 )
 df_v2_agg = df_v2_agg.merge(df_v2_tot, on=eje_y)
+# Aplicar umbral mínimo de registros
 df_v2_agg = df_v2_agg[df_v2_agg["gran_total"] >= min_regs_v2]
 df_v2_agg["pct"] = (df_v2_agg["Total"] / df_v2_agg["gran_total"] * 100).round(2)
 
-# Ordenar por tasa de Otorga descendente
+# Ordenar grupos por tasa de Otorga ascendente (mayor queda arriba en el gráfico)
 orden_otorga = (
     df_v2_agg[df_v2_agg["TIPO_RESUELTO"] == "Otorga"]
     .sort_values("pct", ascending=True)[eje_y]
     .tolist()
 )
 
-# Promedio general de otorgamiento para línea de referencia
+# Promedio general de otorgamiento para la línea de referencia
 promedio_otorga = (
     df_v2_agg[df_v2_agg["TIPO_RESUELTO"] == "Otorga"]["pct"].mean()
     if not df_v2_agg.empty else 0
@@ -533,7 +534,7 @@ with col_v2main:
             },
             title=f"Distribución de resoluciones por {eje_y} (% dentro del subgrupo)",
         )
-        # Línea de referencia: promedio general de otorgamiento
+        # Línea punteada con el promedio general de otorgamiento
         fig_bar.add_vline(
             x=promedio_otorga,
             line_dash="dot", line_color="#e8eaf6", line_width=1.4,
@@ -545,6 +546,7 @@ with col_v2main:
         fig_bar.update_layout(
             paper_bgcolor="#0f1117", plot_bgcolor="#0f1117",
             font_color="#e8eaf6",
+            # Altura dinámica según número de grupos
             height=max(380, len(orden_otorga) * 34 + 80),
             xaxis=dict(
                 range=[0, 100], ticksuffix="%",
@@ -552,12 +554,12 @@ with col_v2main:
             ),
             yaxis=dict(gridcolor="#2a2a3e"),
             margin=dict(l=10, r=10, t=50, b=30),
-            showlegend=False,   # leyenda ya está en la barra global
+            showlegend=False,   # leyenda global ya está en la barra superior
             bargap=0.14,
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
-# Nota fuera de las columnas para evitar solapamiento con la tabla
+# Nota fuera de las columnas para evitar solapamiento con el expander
 st.markdown(
     '<div class="nota">'
     'Las barras se ordenan por tasa de Otorga ascendente (mayor tasa al tope). '
@@ -570,7 +572,7 @@ st.markdown(
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# Tabla resumen bajo el gráfico (expansible)
+# Tabla detallada de proporciones (oculta por defecto)
 with st.expander("📋 Ver tabla de proporciones por grupo"):
     if not df_v2_agg.empty:
         resumen_v2 = (
@@ -579,12 +581,12 @@ with st.expander("📋 Ver tabla de proporciones por grupo"):
                          values="pct", aggfunc="sum")
             .round(1)
         )
-        # Añadir columna de total absoluto
+        # Agregar columna con total absoluto de registros por grupo
         resumen_v2["Total registros"] = (
             df_v2_tot.set_index(eje_y)["gran_total"]
         )
         resumen_v2 = resumen_v2.reset_index()
-        # Re-ordenar igual que el gráfico
+        # Mantener el mismo orden que el gráfico
         orden_idx = [x for x in reversed(orden_otorga)
                      if x in resumen_v2[eje_y].values]
         resumen_v2 = resumen_v2.set_index(eje_y).reindex(orden_idx).reset_index()
@@ -594,10 +596,10 @@ with st.expander("📋 Ver tabla de proporciones por grupo"):
 
 st.markdown("---")
 
-# ══════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 #  VISTA 3 — LÍNEAS TEMPORALES DE RECHAZOS
-#  Tarea: Explorar evolución temporal del tipo de rechazo
-# ══════════════════════════════════════════════════════════
+#  Tarea: Explorar la evolución del tipo de rechazo a lo largo del tiempo
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown(
     '<div class="vista-title">📈 Vista 3: Análisis Temporal de Rechazos (2000–2025)</div>'
     '<div class="vista-sub">¿Cómo varía el tipo de rechazo (abandono vs. RT) a lo largo '
@@ -608,6 +610,7 @@ st.markdown(
 col_v3ctrl, col_v3main = st.columns([1, 3])
 
 with col_v3ctrl:
+    # Variable por la cual desagregar las líneas (small multiples si hay muchos grupos)
     desglose_v3 = st.selectbox(
         "Desglosar líneas por:",
         ["Sin desglose (total)", "PAÍS", "REGIÓN", "RANGO_ETARIO"],
@@ -618,12 +621,14 @@ with col_v3ctrl:
             "RANGO_ETARIO":"Rango Etario",
         }[x],
     )
+    # Número de grupos a mostrar (por volumen de rechazos)
     top_n = st.slider("Top N grupos", 1, 10, 5,
                       help="Muestra los N grupos con mayor volumen total de rechazos")
+    # Toggle para alternar entre porcentaje y valores absolutos
     mostrar_abs = st.toggle("Mostrar valores absolutos", value=False,
                             help="Alterna entre porcentaje y conteo absoluto")
 
-# Filtrar sólo rechazos
+# Filtrar solo los tipos de rechazo para esta vista
 df_v3 = df[df["TIPO_RESUELTO"].isin(["Rechaza con Rt","Rechaza con abandono"])].copy()
 
 with col_v3main:
@@ -634,13 +639,14 @@ with col_v3main:
         label_y   = "Registros" if mostrar_abs else "% sobre total rechazos"
 
         if desglose_v3 == "Sin desglose (total)":
-            # Agregar por año y tipo de rechazo
+            # Modo simple: una línea por tipo de rechazo, sin desglose por grupo
             agg = (
                 df_v3
                 .groupby(["AÑO","TIPO_RESUELTO"])["Total"]
                 .sum()
                 .reset_index()
             )
+            # Total de rechazos por año para calcular el porcentaje
             tot_año = (
                 df_v3.groupby("AÑO")["Total"].sum()
                 .reset_index().rename(columns={"Total":"total_año"})
@@ -665,13 +671,14 @@ with col_v3main:
             )
 
         else:
-            # Top N grupos por volumen de rechazos
+            # Modo desglose: top N grupos con mayor volumen de rechazos
             top_grupos = (
                 df_v3.groupby(desglose_v3)["Total"].sum()
                 .nlargest(top_n).index.tolist()
             )
             df_v3_f = df_v3[df_v3[desglose_v3].isin(top_grupos)]
 
+            # Agregar por año, grupo y tipo de rechazo
             agg = (
                 df_v3_f
                 .groupby(["AÑO", desglose_v3, "TIPO_RESUELTO"])["Total"]
@@ -686,6 +693,7 @@ with col_v3main:
             agg = agg.merge(tot_sub, on=["AÑO", desglose_v3])
             agg["pct"] = (agg["Total"] / agg["total_año"] * 100).round(2)
 
+            # Línea sólida = RT, punteada = abandono para diferenciar tipos
             fig_line = px.line(
                 agg, x="AÑO", y=eje_y_v3,
                 color=desglose_v3,
@@ -705,7 +713,7 @@ with col_v3main:
                 title=f"Tipo de rechazo por {desglose_v3} — top {top_n}",
             )
 
-        # Anotaciones contextuales fijas
+        # Anotaciones fijas: mínimo COVID en 2021 y máximo histórico en 2024
         for año_an, label_an, color_an in [
             (2021, "↓ Mínimo\nCOVID",     "#f1a340"),
             (2024, "↑ Máximo\nhistórico",  "#4dac26"),
@@ -719,7 +727,7 @@ with col_v3main:
                 annotation_font_size=11,
             )
 
-        # Línea de referencia horizontal: promedio histórico de % Rechaza con RT
+        # Línea horizontal con el promedio histórico de % RT (solo en modo sin desglose)
         if not mostrar_abs and desglose_v3 == "Sin desglose (total)":
             prom_rt = agg[agg["TIPO_RESUELTO"]=="Rechaza con Rt"]["pct"].mean()
             fig_line.add_hline(
@@ -731,6 +739,7 @@ with col_v3main:
                 annotation_font_size=10,
             )
 
+        # Rango del eje Y fijo en 0-105% cuando se muestran porcentajes
         y_range = [0, 105] if not mostrar_abs else None
         fig_line.update_layout(
             paper_bgcolor="#0f1117", plot_bgcolor="#0f1117",
@@ -744,6 +753,7 @@ with col_v3main:
                 ticksuffix=("%" if not mostrar_abs else ""),
                 gridcolor="#2a2a3e", zerolinecolor="#555",
             ),
+            # Leyenda horizontal abajo para no competir con el área del gráfico
             legend=dict(
                 bgcolor="#1e2130", bordercolor="#444",
                 borderwidth=1, font_color="#e8eaf6",
@@ -757,7 +767,7 @@ with col_v3main:
             hovermode="x unified",
         )
         st.plotly_chart(fig_line, use_container_width=True)
-        
+
 st.markdown(
     '<div class="nota">'
     'Línea continua = Rechaza con RT (residencia temporaria otorgada como alternativa). '
@@ -770,7 +780,7 @@ st.markdown(
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Tabla de rechazos por año (expandible) ────────────────
+# Tabla de rechazos por año con proporciones (oculta por defecto)
 with st.expander("📋 Ver tabla de rechazos por año"):
     if not df_v3.empty:
         tabla_v3 = (
@@ -779,6 +789,7 @@ with st.expander("📋 Ver tabla de rechazos por año"):
             .unstack(fill_value=0)
             .reset_index()
         )
+        # Calcular totales y proporciones de cada tipo
         tabla_v3["Total rechazos"] = tabla_v3.get("Rechaza con Rt",0) + \
                                      tabla_v3.get("Rechaza con abandono",0)
         tabla_v3["% RT"]   = (tabla_v3.get("Rechaza con Rt",0) /
@@ -789,9 +800,7 @@ with st.expander("📋 Ver tabla de rechazos por año"):
 
 st.markdown("---")
 
-# ══════════════════════════════════════════════════════════
-#  DISCUSIÓN Y CONCLUSIONES
-# ══════════════════════════════════════════════════════════
+# ── Discusión y conclusiones ───────────────────────────────────────────────────
 st.markdown("### 💬 Discusión y Conclusiones")
 
 with st.expander("Ver discusión completa", expanded=False):
@@ -834,9 +843,7 @@ with st.expander("Ver discusión completa", expanded=False):
   región, sexo, edad y nivel de estudios.
     """)
 
-# ══════════════════════════════════════════════════════════
-#  NOTA FINAL DE INTERPRETACIÓN (pie de página fijo)
-# ══════════════════════════════════════════════════════════
+# ── Nota de interpretación al pie de la página ────────────────────────────────
 st.markdown(
     '<div class="nota" style="margin-top:4px;">'
     '📌 <b>Nota de interpretación:</b> Los registros contabilizan <b>actos administrativos</b>, '

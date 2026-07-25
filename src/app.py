@@ -167,7 +167,8 @@ with st.sidebar:
     st.markdown(
         "<div style='font-size:.72rem;color:#9e9e9e;line-height:1.5;'>"
         "<b>Fuente:</b> Servicio Nacional de Migraciones (SERMIG), 2026.<br>"
-        "<b>Dataset:</b> RD-Resueltas-2o-semestre-2025.xlsx<br>"
+        "<b>Dataset:</b> <a href='https://serviciomigraciones.cl/wp-content/uploads/estudios/Datos-abiertos/RD/RD-Resueltas 2o-semestre-2025.xlsx' "
+        "target='_blank' style='color:#4dac26;'>RD-Resueltas-2o-semestre-2025.xlsx</a><br>"
         "<b>Registros válidos:</b> 1.406.334 actos administrativos"
         "</div>",
         unsafe_allow_html=True,
